@@ -1,6 +1,6 @@
 # ASCII Art Generator
 
-A Python tool to convert images to ASCII art with support for animation and dithering.
+A Python tool to convert images to ASCII art with support for animation and edge detection.
 
 ## Installation
 
@@ -27,8 +27,7 @@ python ascii_art.py path/to/image.jpg
 - `-r, --reverse`: Reverse the ASCII character set (dark to light)
 - `-a, --animate`: Animate GIFs (if the input is an animated GIF)
 - `-d, --delay`: Set the delay between frames for animation (default: 0.1 seconds)
-- `--dither`: Choose a dithering method: "none", "ordered", "floyd-steinberg", or "atkinson" (default: "none")
-- `-p, --pattern`: Use pattern-based character selection for improved detail
+- `-e, --edges`: Enable edge detection with line characters (|, -, \, /, +, _)
 
 ### Examples
 
@@ -62,35 +61,24 @@ Animate a GIF:
 python ascii_art.py animation.gif -a
 ```
 
-Apply Floyd-Steinberg dithering:
+Enable edge detection for better outlines:
 ```bash
-python ascii_art.py image.jpg --dither floyd-steinberg
-```
-
-Use pattern-based character selection:
-```bash
-python ascii_art.py image.jpg -p
+python ascii_art.py image.jpg -e
 ```
 
 Combine multiple options:
 ```bash
-python ascii_art.py image.jpg -w 120 --dither atkinson -p
+python ascii_art.py image.jpg -w 120 -e -a
 ```
-
-## Dithering Methods
-
-- **None**: No dithering applied
-- **Ordered**: Uses a Bayer matrix for ordered dithering, creating a regular pattern
-- **Floyd-Steinberg**: Error diffusion dithering that distributes quantization error to neighboring pixels
-- **Atkinson**: Similar to Floyd-Steinberg but distributes less error, creating cleaner results with less noise
 
 ## How It Works
 
 1. The image is resized while maintaining the aspect ratio
 2. The image is converted to grayscale
-3. Optional dithering is applied to improve visual quality
-4. Each pixel's intensity is mapped to an ASCII character
-5. The resulting ASCII characters are arranged to form the final ASCII art
+3. If edge detection is enabled, Canny edge detection is applied to identify edges
+4. Edges are represented with appropriate line characters (|, -, \, /, +, _) based on their direction
+5. Non-edge pixels are mapped to ASCII characters based on their intensity
+6. The resulting ASCII characters are arranged to form the final ASCII art
 
 ## License
 

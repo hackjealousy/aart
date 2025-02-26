@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ASCII Art Generator
-A tool to convert images to ASCII art with support for dithering and animation.
+A tool to convert images to ASCII art with support for animation and edge detection.
 """
 
 import argparse
@@ -10,6 +10,7 @@ import sys
 import time
 import numpy as np
 from PIL import Image
+from skimage import feature
 
 
 def resize_image(image, new_width=100):
@@ -25,116 +26,104 @@ def convert_to_grayscale(image):
     return image.convert("L")
 
 
-def apply_dithering(image, method='floyd-steinberg'):
-    """Apply dithering to the grayscale image."""
-    # Convert PIL Image to numpy array for easier manipulation
-    img_array = np.array(image, dtype=np.float64)
-    height, width = img_array.shape
+def detect_edges(image, sigma=1.0, low_threshold=0.1, high_threshold=0.2):
+    """Detect edges in the image using Canny edge detection."""
+    # Convert PIL image to numpy array
+    img_array = np.array(image)
     
-    if method == 'none':
-        # No dithering, just return the original image
-        return image
+    # Apply Canny edge detection
+    edges = feature.canny(
+        img_array,
+        sigma=sigma,
+        low_threshold=low_threshold,
+        high_threshold=high_threshold
+    )
     
-    elif method == 'ordered':
-        # 4x4 Bayer matrix for ordered dithering
-        bayer_matrix = np.array([
-            [0, 8, 2, 10],
-            [12, 4, 14, 6],
-            [3, 11, 1, 9],
-            [15, 7, 13, 5]
-        ]) / 16.0 * 255
-        
-        for y in range(height):
-            for x in range(width):
-                # Add the dither pattern value
-                threshold = bayer_matrix[y % 4, x % 4]
-                img_array[y, x] = img_array[y, x] + threshold - 128
-                # Clamp values
-                img_array[y, x] = max(0, min(255, img_array[y, x]))
-    
-    elif method == 'floyd-steinberg':
-        # Floyd-Steinberg dithering
-        for y in range(height):
-            for x in range(width):
-                old_pixel = img_array[y, x]
-                new_pixel = 255 if old_pixel > 127 else 0
-                img_array[y, x] = new_pixel
-                
-                error = old_pixel - new_pixel
-                
-                # Distribute error to neighboring pixels
-                if x + 1 < width:
-                    img_array[y, x + 1] += error * 7 / 16
-                if y + 1 < height:
-                    if x - 1 >= 0:
-                        img_array[y + 1, x - 1] += error * 3 / 16
-                    img_array[y + 1, x] += error * 5 / 16
-                    if x + 1 < width:
-                        img_array[y + 1, x + 1] += error * 1 / 16
-    
-    elif method == 'atkinson':
-        # Atkinson dithering
-        for y in range(height):
-            for x in range(width):
-                old_pixel = img_array[y, x]
-                new_pixel = 255 if old_pixel > 127 else 0
-                img_array[y, x] = new_pixel
-                
-                error = (old_pixel - new_pixel) / 8  # Distribute 1/8 of the error to each of 6 neighboring pixels
-                
-                # Distribute error to neighboring pixels
-                if x + 1 < width:
-                    img_array[y, x + 1] += error
-                if x + 2 < width:
-                    img_array[y, x + 2] += error
-                if y + 1 < height:
-                    if x - 1 >= 0:
-                        img_array[y + 1, x - 1] += error
-                    img_array[y + 1, x] += error
-                    if x + 1 < width:
-                        img_array[y + 1, x + 1] += error
-                if y + 2 < height:
-                    img_array[y + 2, x] += error
-    
-    # Create a new PIL Image from the dithered array
-    return Image.fromarray(np.clip(img_array, 0, 255).astype(np.uint8))
+    return edges
 
 
-def pixels_to_ascii(image, ascii_chars):
-    """Convert pixels to ASCII characters based on intensity."""
+def determine_edge_direction(edges, x, y):
+    """Determine the direction of an edge at a specific point."""
+    # Check if the point is actually an edge
+    if not edges[y, x]:
+        return None
+    
+    height, width = edges.shape
+    
+    # Check surrounding pixels to determine edge direction
+    # We'll check in 8 directions (N, NE, E, SE, S, SW, W, NW)
+    directions = []
+    
+    # North
+    if y > 0 and edges[y-1, x]:
+        directions.append("N")
+    # Northeast
+    if y > 0 and x < width-1 and edges[y-1, x+1]:
+        directions.append("NE")
+    # East
+    if x < width-1 and edges[y, x+1]:
+        directions.append("E")
+    # Southeast
+    if y < height-1 and x < width-1 and edges[y+1, x+1]:
+        directions.append("SE")
+    # South
+    if y < height-1 and edges[y+1, x]:
+        directions.append("S")
+    # Southwest
+    if y < height-1 and x > 0 and edges[y+1, x-1]:
+        directions.append("SW")
+    # West
+    if x > 0 and edges[y, x]:
+        directions.append("W")
+    # Northwest
+    if y > 0 and x > 0 and edges[y-1, x-1]:
+        directions.append("NW")
+    
+    # Determine primary direction
+    if "N" in directions and "S" in directions:
+        return "|"  # Vertical line
+    elif "E" in directions and "W" in directions:
+        return "-"  # Horizontal line
+    elif ("NE" in directions and "SW" in directions) or ("NW" in directions and "SE" in directions):
+        if "NE" in directions or "SW" in directions:
+            return "/"  # Diagonal (/)
+        else:
+            return "\\"  # Diagonal (\)
+    elif "N" in directions or "S" in directions:
+        return "|"  # Vertical line
+    elif "E" in directions or "W" in directions:
+        return "-"  # Horizontal line
+    elif "NE" in directions or "SW" in directions:
+        return "/"  # Diagonal (/)
+    elif "NW" in directions or "SE" in directions:
+        return "\\"  # Diagonal (\)
+    else:
+        return "+"  # Intersection or isolated point
+    
+
+def pixels_to_ascii(image, edges=None, ascii_chars=None, edge_chars="|/-\\+_"):
+    """Convert pixels to ASCII characters based on intensity and edges."""
+    width, height = image.size
     pixels = list(image.getdata())
     ascii_str = ""
-    for pixel in pixels:
-        # Map pixel intensity to ASCII character
-        char_index = min(int(pixel * len(ascii_chars) / 256), len(ascii_chars) - 1)
-        ascii_str += ascii_chars[char_index]
-    return ascii_str
-
-
-def pixels_to_ascii_pattern(image, ascii_chars):
-    """Convert pixels to ASCII characters based on local patterns."""
-    width, height = image.size
-    img_array = np.array(image)
-    ascii_str = ""
     
-    # Process 2x2 blocks of pixels to determine appropriate character
-    for y in range(0, height, 2):
-        for x in range(0, width, 2):
-            # Extract 2x2 block (or smaller if at the edge)
-            block_height = min(2, height - y)
-            block_width = min(2, width - x)
-            block = img_array[y:y+block_height, x:x+block_width]
+    for y in range(height):
+        for x in range(width):
+            idx = y * width + x
+            pixel = pixels[idx]
             
-            # Calculate average brightness
-            avg_brightness = np.mean(block)
+            # Check if this pixel is an edge and should use a line character
+            if edges is not None and y < edges.shape[0] and x < edges.shape[1] and edges[y, x]:
+                # Determine which edge character to use based on direction
+                edge_char = determine_edge_direction(edges, x, y)
+                if edge_char:
+                    ascii_str += edge_char
+                    continue
             
-            # Map to character based on average brightness
-            char_index = min(int(avg_brightness * len(ascii_chars) / 256), len(ascii_chars) - 1)
+            # If not an edge or no direction determined, use regular intensity mapping
+            char_index = min(int(pixel * len(ascii_chars) / 256), len(ascii_chars) - 1)
             ascii_str += ascii_chars[char_index]
-        
-        # Add a newline after each row of blocks
-        ascii_str += "\n"
-    
+            
     return ascii_str
 
 
@@ -143,7 +132,7 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
-def image_to_ascii(image_path, width=100, ascii_chars=None, output_file=None, animate=False, delay=0.1, dither='none', pattern_mode=False):
+def image_to_ascii(image_path, width=100, ascii_chars=None, output_file=None, animate=False, delay=0.1, edge_detection=False):
     """Convert an image to ASCII art."""
     if ascii_chars is None:
         # From dark to light - a carefully selected set with good contrast
@@ -169,19 +158,17 @@ def image_to_ascii(image_path, width=100, ascii_chars=None, output_file=None, an
                 frame_copy = resize_image(frame_copy, width)
                 frame_copy = convert_to_grayscale(frame_copy)
                 
-                # Apply dithering if requested
-                if dither != 'none':
-                    frame_copy = apply_dithering(frame_copy, dither)
+                # Detect edges if requested
+                edges = None
+                if edge_detection:
+                    edges = detect_edges(frame_copy)
                 
                 # Convert to ASCII
-                if pattern_mode:
-                    ascii_str_with_breaks = pixels_to_ascii_pattern(frame_copy, ascii_chars)
-                else:
-                    ascii_str = pixels_to_ascii(frame_copy, ascii_chars)
-                    img_width = frame_copy.width
-                    ascii_str_with_breaks = "\n".join(
-                        ascii_str[i:i+img_width] for i in range(0, len(ascii_str), img_width)
-                    )
+                ascii_str = pixels_to_ascii(frame_copy, edges, ascii_chars)
+                img_width = frame_copy.width
+                ascii_str_with_breaks = "\n".join(
+                    ascii_str[i:i+img_width] for i in range(0, len(ascii_str), img_width)
+                )
                 
                 frames.append(ascii_str_with_breaks)
             
@@ -203,19 +190,17 @@ def image_to_ascii(image_path, width=100, ascii_chars=None, output_file=None, an
     image = resize_image(image, width)
     image = convert_to_grayscale(image)
     
-    # Apply dithering if requested
-    if dither != 'none':
-        image = apply_dithering(image, dither)
+    # Detect edges if requested
+    edges = None
+    if edge_detection:
+        edges = detect_edges(image)
     
     # Convert to ASCII
-    if pattern_mode:
-        ascii_str_with_breaks = pixels_to_ascii_pattern(image, ascii_chars)
-    else:
-        ascii_str = pixels_to_ascii(image, ascii_chars)
-        img_width = image.width
-        ascii_str_with_breaks = "\n".join(
-            ascii_str[i:i+img_width] for i in range(0, len(ascii_str), img_width)
-        )
+    ascii_str = pixels_to_ascii(image, edges, ascii_chars)
+    img_width = image.width
+    ascii_str_with_breaks = "\n".join(
+        ascii_str[i:i+img_width] for i in range(0, len(ascii_str), img_width)
+    )
     
     # Output
     if output_file:
@@ -238,9 +223,7 @@ def main():
     parser.add_argument("-r", "--reverse", action="store_true", help="Reverse the ASCII character set (dark to light)")
     parser.add_argument("-a", "--animate", action="store_true", help="Animate GIFs (if the input is an animated GIF)")
     parser.add_argument("-d", "--delay", type=float, default=0.1, help="Delay between frames for animation (default: 0.1 seconds)")
-    parser.add_argument("--dither", choices=["none", "ordered", "floyd-steinberg", "atkinson"], default="none",
-                        help="Dithering method to use (default: none)")
-    parser.add_argument("-p", "--pattern", action="store_true", help="Use pattern-based character selection")
+    parser.add_argument("-e", "--edges", action="store_true", help="Enable edge detection with line characters")
     
     args = parser.parse_args()
     
@@ -252,7 +235,7 @@ def main():
     # Convert image to ASCII
     ascii_art = image_to_ascii(
         args.image, args.width, chars, args.output, 
-        args.animate, args.delay, args.dither, args.pattern
+        args.animate, args.delay, args.edges
     )
     
     # Print to console if no output file specified and not animated
